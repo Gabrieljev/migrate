@@ -7,12 +7,15 @@ import (
 	"io/ioutil"
 	"net/url"
 	"strconv"
+	"strings"
+
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database"
-	"github.com/mongodb/mongo-go-driver/bson"
-	"github.com/mongodb/mongo-go-driver/mongo"
-	"github.com/mongodb/mongo-go-driver/x/network/connstring"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
 )
 
 func init() {
@@ -72,8 +75,15 @@ func (m *Mongo) Open(dsn string) (database.Driver, error) {
 	if len(uri.Database) == 0 {
 		return nil, ErrNoDatabaseName
 	}
-
-	purl, err := url.Parse(dsn)
+	strDB := strings.Split(uri.Database, "/")
+	if len(strDB) == 1 {
+		return nil, ErrNoDatabaseName
+	}
+	if strDB[1] == "" {
+		return nil, ErrNoDatabaseName
+	}
+	sources := strings.ReplaceAll(dsn, "/"+strDB[1], "")
+	purl, err := url.Parse(sources)
 	if err != nil {
 		return nil, err
 	}
@@ -83,8 +93,8 @@ func (m *Mongo) Open(dsn string) (database.Driver, error) {
 
 	q := migrate.FilterCustomQuery(purl)
 	q.Scheme = "mongodb"
-
-	client, err := mongo.Connect(context.TODO(), q.String())
+	clientOptions := options.Client().ApplyURI(purl.String())
+	client, err := mongo.Connect(context.TODO(), clientOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +102,7 @@ func (m *Mongo) Open(dsn string) (database.Driver, error) {
 		return nil, err
 	}
 	mc, err := WithInstance(client, &Config{
-		DatabaseName:         uri.Database,
+		DatabaseName:         strDB[1],
 		MigrationsCollection: migrationsCollection,
 		TransactionMode:      transactionMode,
 	})
